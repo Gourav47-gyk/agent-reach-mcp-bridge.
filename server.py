@@ -1,4 +1,6 @@
-
+import hmac
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 import os
 import httpx
 import feedparser
@@ -70,7 +72,29 @@ async def read_rss_feed(url: str) -> str:
         )
     return "\n\n".join(results) or "No feed entries found."
 
+class TokenAuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        if request.url.path == "/health":
+            return JSONResponse({"status": "ok"})
 
+        expected = os.environ.get("MCP_ACCESS_TOKEN", "")
+        supplied = request.headers.get("Authorization", "")
+
+        if not expected:
+            return JSONResponse(
+                {"error": "Server token is not configured"},
+                status_code=503,
+            )
+
+        if not hmac.compare_digest(
+            supplied, f"Bearer {expected}"
+        ):
+            return JSONResponse(
+                {"error": "Unauthorized"},
+                status_code=401,
+            )
+
+        return await call_next(request)
 if __name__ == "__main__":
     mcp.run(transport="streamable-http")
   
